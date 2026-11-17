@@ -1,122 +1,106 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html lang="id">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>KOTA SENJA — Open World</title>
+<title>KOTA SENJA</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1426; font-family: 'Segoe UI', system-ui, sans-serif; }
-  #game-canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
-  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; color: #fff; }
-  #hud-top { position: absolute; top: 14px; left: 16px; right: 16px; display: flex; justify-content: space-between; align-items: flex-start; }
-  #health-wrap { background: rgba(10, 12, 24, 0.65); border: 1px solid rgba(255,255,255,0.25); border-radius: 8px; padding: 8px 12px; min-width: 210px; }
-  #health-label { font-size: 12px; letter-spacing: 1px; opacity: 0.85; }
-  #health-bar { height: 12px; background: rgba(255,255,255,0.18); border-radius: 6px; margin-top: 4px; overflow: hidden; }
-  #health-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #2ecc71, #a8e063); border-radius: 6px; transition: width 0.2s; }
-  #money-text { font-size: 22px; font-weight: 700; margin-top: 6px; color: #ffd700; text-shadow: 0 2px 4px rgba(0,0,0,0.6); }
-  #wanted-stars { font-size: 30px; letter-spacing: 4px; color: rgba(255,255,255,0.35); text-shadow: 0 2px 6px rgba(0,0,0,0.7); }
-  #wanted-stars.hot { color: #ffd700; }
-  #objective-box { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); text-align: center; background: rgba(10, 12, 24, 0.65); border: 1px solid rgba(255,255,255,0.25); border-radius: 8px; padding: 8px 18px; max-width: 480px; }
-  #objective-title { font-size: 13px; font-weight: 700; letter-spacing: 2px; color: #ffb36b; }
-  #objective-text { font-size: 15px; margin-top: 2px; }
-  #minimap { position: absolute; right: 16px; bottom: 16px; width: 190px; height: 190px; border: 2px solid rgba(255,255,255,0.4); border-radius: 10px; background: rgba(12,16,28,0.85); }
-  #speed-text { position: absolute; right: 20px; bottom: 216px; font-size: 26px; font-weight: 700; text-shadow: 0 2px 6px rgba(0,0,0,0.8); }
-  #ammo-text { position: absolute; left: 16px; bottom: 16px; font-size: 16px; font-weight: 600; text-shadow: 0 2px 4px rgba(0,0,0,0.8); }
-  #hud-message { position: absolute; left: 50%; bottom: 90px; transform: translateX(-50%); background: rgba(10,12,24,0.8); border-radius: 8px; padding: 10px 20px; font-size: 16px; opacity: 0; transition: opacity 0.4s; white-space: nowrap; }
-  #controls-hint { position: absolute; left: 16px; bottom: 44px; font-size: 12px; opacity: 0.75; text-shadow: 0 1px 3px rgba(0,0,0,0.8); line-height: 1.6; }
-  .overlay { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 10; background: rgba(8, 6, 18, 0.72); backdrop-filter: blur(3px); }
-  .overlay.visible { display: flex; }
-  .panel { background: linear-gradient(160deg, #241a3d, #120e20); border: 1px solid rgba(255, 179, 107, 0.5); border-radius: 16px; padding: 34px 44px; text-align: center; color: #fff; max-width: 560px; box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
-  .panel h1 { font-size: 52px; letter-spacing: 4px; color: #ffb36b; text-shadow: 0 4px 18px rgba(255, 154, 92, 0.55); }
-  .panel h2 { font-size: 30px; color: #ffb36b; margin-bottom: 10px; }
-  .panel p { font-size: 15px; line-height: 1.6; opacity: 0.92; margin: 10px 0; }
-  .panel button { pointer-events: auto; cursor: pointer; margin: 8px 6px 0; padding: 12px 26px; font-size: 16px; font-weight: 700; border: none; border-radius: 10px; background: linear-gradient(180deg, #ffb36b, #ff7a3d); color: #241105; }
-  .panel button.secondary { background: rgba(255,255,255,0.16); color: #fff; border: 1px solid rgba(255,255,255,0.35); }
-  #mission-list { text-align: left; margin: 14px auto 4px; display: inline-block; }
-  .mission-item { padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 15px; }
-  .mission-item:hover { background: rgba(255,255,255,0.12); }
-  .mission-item.done { color: #8dff9e; }
-  .keys { font-size: 13px; opacity: 0.8; line-height: 1.8; margin-top: 12px; }
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #1a1210; font-family: system-ui, -apple-system, sans-serif; }
+  #game { display: block; width: 100vw; height: 100vh; }
+  #hud { position: fixed; inset: 0; pointer-events: none; color: #fff; }
+  .panel { background: rgba(12, 12, 20, 0.62); border-radius: 10px; padding: 10px 14px; }
+  #health-box { position: absolute; top: 14px; left: 14px; }
+  #health-label { font-size: 14px; letter-spacing: 1px; font-weight: 700; }
+  #health-bar { width: 190px; height: 12px; background: rgba(255,255,255,0.25); border-radius: 6px; margin: 5px 0 6px; overflow: hidden; }
+  #health-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #37d67a, #7be495); border-radius: 6px; }
+  #money { font-size: 22px; font-weight: 800; color: #ffd23d; }
+  #mission-box { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); text-align: center; }
+  #mission-title { font-size: 15px; font-weight: 800; letter-spacing: 1px; color: #ffb347; }
+  #mission-line { font-size: 15px; margin-top: 3px; }
+  #stars { position: absolute; top: 14px; right: 16px; font-size: 26px; color: #ffd23d; letter-spacing: 3px; text-shadow: 0 2px 6px rgba(0,0,0,0.6); }
+  #speed { position: absolute; right: 16px; bottom: 228px; font-size: 24px; font-weight: 800; text-shadow: 0 2px 6px rgba(0,0,0,0.7); }
+  #minimap { position: absolute; right: 14px; bottom: 14px; width: 200px; height: 200px; border: 2px solid rgba(255,255,255,0.35); border-radius: 8px; background: #0d1420; }
+  #hint { position: absolute; left: 14px; bottom: 14px; font-size: 13px; line-height: 1.5; color: rgba(255,255,255,0.85); text-shadow: 0 1px 4px rgba(0,0,0,0.8); }
+  #toast { position: absolute; top: 96px; left: 50%; transform: translateX(-50%); background: rgba(12,12,20,0.75); padding: 8px 16px; border-radius: 8px; font-size: 15px; display: none; }
+  .overlay { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(10, 8, 16, 0.55); pointer-events: auto; z-index: 10; }
+  .overlay.show { display: flex; }
+  .card { background: rgba(24, 18, 44, 0.92); border: 2px solid #ff9a3d; border-radius: 16px; padding: 28px 36px; text-align: center; color: #fff; max-width: 520px; }
+  .card h1 { margin: 0 0 6px; font-size: 44px; letter-spacing: 3px; color: #ffb347; text-shadow: 0 0 18px rgba(255, 150, 60, 0.7); }
+  .card p { margin: 8px 0; font-size: 16px; line-height: 1.5; }
+  .card button { pointer-events: auto; margin: 10px 6px 0; padding: 12px 26px; font-size: 17px; font-weight: 700; border: none; border-radius: 10px; background: #ff9a3d; color: #241300; cursor: pointer; }
+  .card button:hover { background: #ffb347; }
+  #mission-list { text-align: left; font-size: 15px; line-height: 1.7; margin: 10px auto 0; display: inline-block; }
+  #overlay-win .card { backdrop-filter: blur(4px); }
 </style>
+<script type="importmap">{"imports": {"three": "./vendor/three.module.min.js"}}</script>
 </head>
 <body>
-<canvas id="game-canvas"></canvas>
+<canvas id="game"></canvas>
 <div id="hud">
-  <div id="hud-top">
-    <div id="health-wrap">
-      <div id="health-label">KESEHATAN <span id="health-text">100</span></div>
-      <div id="health-bar"><div id="health-fill"></div></div>
-      <div id="money-text">$0</div>
-    </div>
-    <div id="wanted-stars">☆☆☆☆☆</div>
+  <div id="health-box" class="panel">
+    <div id="health-label">KESEHATAN 100</div>
+    <div id="health-bar"><div id="health-fill"></div></div>
+    <div id="money">$0</div>
   </div>
-  <div id="objective-box">
-    <div id="objective-title">Kota Senja — bebas</div>
-    <div id="objective-text">Tekan 1-5 untuk mulai misi, atau jelajahi kota.</div>
+  <div id="mission-box" class="panel">
+    <div id="mission-title">Misi 1 / 5</div>
+    <div id="mission-line">Antar paket ke Plaza Senja</div>
   </div>
-  <div id="speed-text"></div>
-  <div id="ammo-text"></div>
-  <div id="controls-hint">WASD jalan / nyetir · Mouse kamera · E masuk/keluar mobil<br>F pukul · Klik tembak · Shift lari · P jeda · R ulang · M suara</div>
-  <div id="hud-message"></div>
-  <canvas id="minimap" width="190" height="190"></canvas>
+  <div id="stars">☆☆☆☆☆</div>
+  <div id="speed">0 km/h</div>
+  <canvas id="minimap" width="200" height="200"></canvas>
+  <div id="hint">WASD jalan / nyetir · Mouse kamera · E masuk/keluar mobil<br>F pukul · Klik tembak · Shift lari · P jeda · R ulang · M suara</div>
+  <div id="toast"></div>
 </div>
 
-<div class="overlay visible" id="overlay-menu">
-  <div class="panel">
+<div id="overlay-title" class="overlay">
+  <div class="card">
     <h1>KOTA SENJA</h1>
-    <p>Open world di tepi laut saat matahari terbenam. Raka, kurir Kota Senja, berutang pada Raja Pelabuhan — lima misi memisahkanmu dari kebebasan.</p>
-    <p>Jelajahi kota dengan berjalan kaki atau mencuri mobil, hindari polisi, selesaikan misi, dan jadilah Raja Senja.</p>
-    <button id="start-btn">MULAI MISI</button>
-    <button id="continue-btn" class="secondary">LANJUTKAN</button>
+    <p>Raka, kurir Kota Senja, berutang pada Raja Pelabuhan. Selesaikan 5 misi, lunasi utangmu, dan jadilah Raja Senja.</p>
     <div id="mission-list"></div>
-    <div class="keys">WASD gerak · Mouse kamera · E mobil · F pukul · Klik tembak<br>Shift lari · P jeda · R ulang · M suara · 1-5 pilih misi</div>
-    <button id="mute-btn" class="secondary">Suara: Hidup (M)</button>
+    <br>
+    <button id="btn-start">MULAI BARU</button>
+    <button id="btn-continue" style="display:none">LANJUTKAN</button>
   </div>
 </div>
-<div class="overlay" id="overlay-pause">
-  <div class="panel">
-    <h2>JEDA</h2>
-    <p>Kota Senja menunggumu.</p>
-    <button id="resume-btn">LANJUTKAN</button>
-  </div>
-</div>
-<div class="overlay" id="overlay-busted">
-  <div class="panel">
-    <h2>TERTANGKAP!</h2>
-    <p>Polisi Kota Senja menangkapmu. Denda $120, dan kamu kembali ke titik awal.</p>
-    <button id="busted-btn">COBA LAGI</button>
-  </div>
-</div>
-<div class="overlay" id="overlay-wasted">
-  <div class="panel">
-    <h2>KAMU TUMBANG</h2>
-    <p>Raka dibawa ke rumah sakit. Biaya $80, dan kamu kembali ke titik awal.</p>
-    <button id="wasted-btn">BANGKIT LAGI</button>
-  </div>
-</div>
-<div class="overlay" id="overlay-mission-done">
-  <div class="panel">
-    <h2>MISI SELESAI!</h2>
+<div id="overlay-mission-done" class="overlay">
+  <div class="card">
+    <h1>MISI SELESAI</h1>
     <p id="mission-done-text"></p>
-    <button id="next-mission-btn">MISI BERIKUTNYA</button>
+    <button id="btn-next">LANJUT</button>
   </div>
 </div>
-<div class="overlay" id="overlay-win">
-  <div class="panel">
+<div id="overlay-win" class="overlay">
+  <div class="card">
     <h1>RAJA SENJA</h1>
-    <p>Utang lunas. Lima misi selesai. Kota Senja kini mengenal namamu, Raka.</p>
+    <p>Utang lunas! Kota Senja kini mengenal nama Raka.</p>
     <p id="win-stats"></p>
-    <button id="play-again-btn">MAIN LAGI</button>
+    <button id="btn-again">MAIN LAGI</button>
   </div>
 </div>
-<script type="importmap">
-{
-  "imports": {
-    "three": "./vendor/three.module.min.js"
-  }
-}
-</script>
+<div id="overlay-busted" class="overlay">
+  <div class="card">
+    <h1>DITANGKAP!</h1>
+    <p id="busted-text">Polisi menangkap Raka. Denda dipotong dari uangmu.</p>
+    <button id="btn-busted">BEBAS</button>
+  </div>
+</div>
+<div id="overlay-wasted" class="overlay">
+  <div class="card">
+    <h1>RAKA TUMBANG</h1>
+    <p id="wasted-text">Raka tidak sadarkan diri. Denda dipotong dari uangmu.</p>
+    <button id="btn-wasted">BANGUN</button>
+  </div>
+</div>
+<div id="overlay-pause" class="overlay">
+  <div class="card">
+    <h1>JEDA</h1>
+    <p>Istirahat sebentar, Raka.</p>
+    <button id="btn-resume">LANJUT</button>
+    <button id="btn-restart">ULANG</button>
+  </div>
+</div>
+<button id="btn-mute" style="position:fixed; left:14px; bottom:120px; z-index:20; pointer-events:auto; padding:8px 14px; border-radius:8px; border:none; background:rgba(12,12,20,0.62); color:#fff; cursor:pointer;">🔊 Suara: Nyala</button>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>
