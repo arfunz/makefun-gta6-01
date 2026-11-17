@@ -1,96 +1,52 @@
-// KOTA SENJA — renderer and the sunset sky.
-// One warm directional sun, a hazy horizon, and a low sun disc so
-// every screenshot reads as golden hour on the coast.
-
+// The renderer, the sunset scene and the third-person camera.
 import * as THREE from 'three';
-import { SUNSET } from './config.js';
+import { COLORS } from './config.js';
 
-export function createRenderer(canvas) {
+export function createWorld(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
-  return renderer;
-}
-
-export function createCamera() {
-  const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 1200);
-  camera.position.set(0, 10, 20);
-  return camera;
-}
-
-export function createScene() {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(SUNSET.skyHorizon);
-  scene.fog = new THREE.Fog(SUNSET.fogColor, 180, 520);
-  const hemi = new THREE.HemisphereLight(SUNSET.ambientSky, SUNSET.ambientGround, 1.25);
+  scene.background = new THREE.Color(COLORS.sky);
+  scene.fog = new THREE.Fog(COLORS.fog, 90, 340);
+  const hemi = new THREE.HemisphereLight(0xffd9b0, 0x3a2a3a, 0.9);
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight(SUNSET.sunColor, 2.9);
-  sun.position.set(-140, 170, -90);
+  const sun = new THREE.DirectionalLight(0xffd9a0, 1.6);
+  sun.position.set(90, 70, -60);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
-  sun.shadow.camera.left = -220;
-  sun.shadow.camera.right = 220;
-  sun.shadow.camera.top = 220;
-  sun.shadow.camera.bottom = -220;
-  sun.shadow.camera.far = 600;
-  sun.shadow.bias = -0.0004;
+  sun.shadow.mapSize.set(1024, 1024);
+  sun.shadow.camera.left = -120;
+  sun.shadow.camera.right = 120;
+  sun.shadow.camera.top = 120;
+  sun.shadow.camera.bottom = -120;
+  sun.shadow.camera.far = 400;
   scene.add(sun);
-  // Low sun disc on the horizon, due west over the sea.
-  const sunDisc = new THREE.Mesh(
-    new THREE.CircleGeometry(26, 32),
-    new THREE.MeshBasicMaterial({ color: 0xffe9b0, fog: false }),
-  );
-  sunDisc.position.set(-380, 66, -160);
-  sunDisc.lookAt(0, 20, 0);
-  scene.add(sunDisc);
-  // Warm gradient sky dome: top dusk blue, horizon orange.
-  const skyGeo = new THREE.SphereGeometry(480, 24, 12);
-  const skyMat = new THREE.ShaderMaterial({
-    side: THREE.BackSide,
-    depthWrite: false,
-    uniforms: {
-      topColor: { value: new THREE.Color(SUNSET.skyTop) },
-      horizonColor: { value: new THREE.Color(SUNSET.skyHorizon) },
-    },
-    vertexShader: `
-      varying vec3 vWorldPosition;
-      void main() {
-        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-        vWorldPosition = worldPosition.xyz;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-    fragmentShader: `
-      uniform vec3 topColor;
-      uniform vec3 horizonColor;
-      varying vec3 vWorldPosition;
-      void main() {
-        float h = normalize(vWorldPosition).y;
-        float t = clamp(h * 1.6 + 0.12, 0.0, 1.0);
-        gl_FragColor = vec4(mix(horizonColor, topColor, t), 1.0);
-      }
-    `,
+  const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 700);
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
   });
-  const sky = new THREE.Mesh(skyGeo, skyMat);
-  scene.add(sky);
-  return { scene, sun };
+  return { renderer, scene, camera, sun };
 }
 
-// ---- sizing ----
-
-export function fitRendererToWindow(renderer, camera) {
-  const width = window.innerWidth;
-  const height = window.innerHeight;
-  camera.aspect = width / height;
-  camera.updateProjectionMatrix();
-  renderer.setSize(width, height);
-}
-
-export function watchWindowResize(renderer, camera) {
-  window.addEventListener('resize', () => fitRendererToWindow(renderer, camera));
+// Third-person camera: behind and above the player, looking at them.
+// yaw PI puts the camera north of the player, looking south.
+export function updateCamera(G, dt) {
+  const p = G.player;
+  const cam = G.camera;
+  const dist = G.cameraDistance;
+  const pitch = G.cameraPitch;
+  const yaw = G.cameraYaw;
+  const tx = p.inCar && p.car ? p.car.x : p.x;
+  const tz = p.inCar && p.car ? p.car.z : p.z;
+  const target = new THREE.Vector3(tx, 1.6, tz);
+  const cx = tx + Math.sin(yaw) * dist * Math.cos(pitch);
+  const cy = 1.6 + Math.sin(pitch) * dist;
+  const cz = tz + Math.cos(yaw) * dist * Math.cos(pitch);
+  cam.position.set(cx, cy, cz);
+  cam.lookAt(target);
 }

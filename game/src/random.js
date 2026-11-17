@@ -1,43 +1,41 @@
-// KOTA SENJA — small seeded random helpers.
-// One deterministic generator drives the city layout so the same seed
-// always builds the same streets, buildings and palms.
-
-export function makeSeededRandom(seed) {
-  let state = seed >>> 0;
-  return function nextRandom() {
-    state |= 0;
-    state = (state + 0x6d2b79f5) | 0;
-    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+// Seeded random numbers. The city, the traffic and the pedestrians are all
+// built from one seed, so every load of the game looks identical.
+export function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function next() {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
 
-export function randomRange(rng, min, max) {
-  return min + rng() * (max - min);
-}
-
-export function randomInt(rng, min, max) {
-  return Math.floor(randomRange(rng, min, max + 1));
-}
-
-// ---- choice helpers ----
-
-export function pickFrom(rng, list) {
-  return list[Math.floor(rng() * list.length)];
-}
-
-export function shuffleList(rng, list) {
-  const copy = list.slice();
-  for (let i = copy.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(rng() * (i + 1));
-    const tmp = copy[i];
-    copy[i] = copy[j];
-    copy[j] = tmp;
-  }
-  return copy;
-}
-
-export function chance(rng, probability) {
-  return rng() < probability;
+export function makeRng(seed) {
+  const next = mulberry32(seed);
+  return {
+    next,
+    range(min, max) {
+      return min + next() * (max - min);
+    },
+    int(min, max) {
+      return Math.floor(min + next() * (max - min + 1));
+    },
+    pick(list) {
+      return list[Math.floor(next() * list.length)];
+    },
+    chance(p) {
+      return next() < p;
+    },
+    shuffle(list) {
+      const out = list.slice();
+      for (let i = out.length - 1; i > 0; i--) {
+        const j = Math.floor(next() * (i + 1));
+        const t = out[i];
+        out[i] = out[j];
+        out[j] = t;
+      }
+      return out;
+    },
+  };
 }

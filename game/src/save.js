@@ -1,48 +1,29 @@
-// KOTA SENJA — save and load through localStorage.
-// Remembers money, mission progress and the best wanted level survived.
-
-import { SAVE_KEY } from './config.js';
-
-export function defaultSave() {
-  return {
-    money: 0,
-    missionsCompleted: 0,
-    bestWanted: 0,
-    muted: false,
-  };
-}
+// Save: missions completed and money, in localStorage.
+const KEY = 'kota-senja-save-v1';
 
 export function loadSave() {
   try {
-    const raw = window.localStorage.getItem(SAVE_KEY);
-    if (!raw) return defaultSave();
-    const parsed = JSON.parse(raw);
-    const save = defaultSave();
-    if (typeof parsed.money === 'number') save.money = parsed.money;
-    if (typeof parsed.missionsCompleted === 'number') save.missionsCompleted = parsed.missionsCompleted;
-    if (typeof parsed.bestWanted === 'number') save.bestWanted = parsed.bestWanted;
-    if (typeof parsed.muted === 'boolean') save.muted = parsed.muted;
-    return save;
-  } catch (err) {
-    return defaultSave();
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return { missionsCompleted: 0, money: 0 };
+    const s = JSON.parse(raw);
+    return { missionsCompleted: s.missionsCompleted | 0, money: s.money | 0 };
+  } catch {
+    return { missionsCompleted: 0, money: 0 };
   }
 }
 
-// ---- writing ----
-
-export function writeSave(save) {
+export function writeSave(s) {
   try {
-    window.localStorage.setItem(SAVE_KEY, JSON.stringify(save));
-    return true;
-  } catch (err) {
-    return false;
+    localStorage.setItem(KEY, JSON.stringify(s));
+  } catch {
+    // Storage unavailable (private mode): the game still runs.
   }
 }
 
 export function clearSave() {
   try {
-    window.localStorage.removeItem(SAVE_KEY);
-  } catch (err) {
-    // A failed clear is harmless; the next write overwrites it.
+    localStorage.removeItem(KEY);
+  } catch {
+    // Ignore.
   }
 }

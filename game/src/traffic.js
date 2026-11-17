@@ -1,100 +1,91 @@
-// KOTA SENJA — traffic: ordinary cars looping the city streets.
-// They follow rectangular loops around blocks and slow for the car ahead.
+// Traffic: cars that cruise the road grid, turning at intersections and
+// slowing for the car ahead. They stay on their lane, so they never need
+// the building colliders.
+import { TRAFFIC_COUNT, COLORS, ROADS } from './config.js';
+import { makeCar } from './vehicles.js';
 
-import { createCar, carForward } from './vehicles.js';
-import { CITY, cityHalfSpan } from './config.js';
-import { makeSeededRandom, randomInt, pickFrom } from './random.js';
-
-function loopAroundBlock(cx, cz, halfSize, dir) {
-  const pts = [
-    { x: cx - halfSize, z: cz - halfSize },
-    { x: cx + halfSize, z: cz - halfSize },
-    { x: cx + halfSize, z: cz + halfSize },
-    { x: cx - halfSize, z: cz + halfSize },
-  ];
-  return dir > 0 ? pts : pts.slice().reverse();
+// Right-hand traffic: the lane offset from a road's centre line.
+function laneOffset(axis, dir) {
+  if (axis === 'x') return dir > 0 ? 2 : -2;
+  return dir > 0 ? -2 : 2;
 }
 
-export function spawnTraffic(scene, colliders, count) {
-  const rng = makeSeededRandom(4451);
+// The heading that drives along an axis in a direction.
+function headingOf(axis, dir) {
+  if (axis === 'x') return dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+  return dir > 0 ? 0 : Math.PI;
+}
+
+export function spawnTraffic(city, rng, count = TRAFFIC_COUNT) {
   const cars = [];
-  const pitch = CITY.blockSize + CITY.streetWidth;
-  const half = cityHalfSpan();
-  for (let i = 0; i < count; i += 1) {
-    const bx = randomInt(rng, 0, CITY.blocksAcross - 1);
-    const bz = randomInt(rng, 0, CITY.blocksAcross - 1);
-    const cx = (bx - (CITY.blocksAcross - 1) / 2) * pitch + pitch / 2 - CITY.streetWidth / 2;
-    const cz = (bz - (CITY.blocksAcross - 1) / 2) * pitch + pitch / 2 - CITY.streetWidth / 2;
-    const dir = rng() < 0.5 ? 1 : -1;
-    const loop = loopAroundBlock(cx, cz, pitch / 2 + CITY.streetWidth / 2, dir);
-    const start = loop[0];
-    const color = pickFrom(rng, [0xc0392b, 0x2e86c1, 0xf1c40f, 0x7d3c98, 0x16a085, 0xe67e22, 0xecf0f1]);
-    const car = createCar(scene, start.x, start.z, 0, color, 'traffic');
-    car.loop = loop;
-    car.loopIndex = 1;
-    car.loopDir = dir;
-    car.targetSpeed = 8 + rng() * 5;
+  for (let i = 0; i < count; i++) {
+    const axis = rng.pick(['x', 'z']);
+    const dir = rng.pick([1, -1]);
+    const lane = rng.pick(ROADS);
+    const along = rng.range(-120, 180);
+    const x = axis === 'x' ? along : lane + laneOffset(axis, dir);
+    const z = axis === 'x' ? lane + laneOffset(axis, dir) : along;
+    const car = makeCar(x, z, headingOf(axis, dir), rng.pick(COLORS.cars), 'traffic');
+    car.axis = axis;
+    car.dir = dir;
+    car.lane = lane;
+    car.targetSpeed = rng.range(7, 11);
     car.speed = car.targetSpeed;
+    car.cool = 0;
     cars.push(car);
   }
   return cars;
 }
 
-export function updateTraffic(cars, dt, colliders) {
+export function updateTraffic(cars, dt, city, others) {
   for (const car of cars) {
-    const target = car.loop[car.loopIndex % car.loop.length];
-    const dx = target.x - car.x;
-    const dz = target.z - car.z;
-    const dist = Math.hypot(dx, dz);
-    if (dist < 3) {
-      car.loopIndex += 1;
-      continue;
+    if (car.driven) continue;
+    car.cool -= dt;
+    // Slow for the car ahead on the same lane.
+    let gap = 99;
+    for (const o of cars) {
+      if (o === car || o.axis !== car.axis || o.lane !== car.lane || o.dir !== car.dir) continue;
+      const g = (o.x - car.x) * (car.axis === 'x' ? car.dir : 0) + (o.z - car.z) * (car.axis === 'z' ? car.dir : 0);
+      if (g > 0 && g < gap) gap = g;
     }
-    const wantHeading = Math.atan2(dx, dz);
-    let diff = wantHeading - car.heading;
-    while (diff > Math.PI) diff -= Math.PI * 2;
-    while (diff < -Math.PI) diff += Math.PI * 2;
-    car.heading += Math.max(-2.4 * dt, Math.min(2.4 * dt, diff));
-    let desired = car.targetSpeed;
-    for (const other of cars) {
-      if (other === car) continue;
-      const ox = other.x - car.x;
-      const oz = other.z - car.z;
-      const forward = carForward(car);
-      const ahead = ox * forward.x + oz * forward.z;
-      const side = Math.abs(ox * forward.z - oz * forward.x);
-      if (ahead > 0 && ahead < 9 && side < 2.4) {
-        desired = Math.min(desired, Math.max(0, other.speed - 1));
+    if (gap < 8) car.speed = Math.max(0, Math.min(car.speed, 4));
+    else if (car.targetSpeed > 0) car.speed += Math.sign(car.targetSpeed - car.speed) * 8 * dt;
+    else car.speed = Math.max(0, car.speed - 10 * dt);
+    if (car.axis === 'x') car.x += car.dir * car.speed * dt;
+    else car.z += car.dir * car.speed * dt;
+    car.heading = headingOf(car.axis, car.dir);
+    // Off the map: turn around.
+    const pos = car.axis === 'x' ? car.x : car.z;
+    if (pos < -135 || pos > 205) {
+      car.dir *= -1;
+      car.cool = 3;
+      car.heading = headingOf(car.axis, car.dir);
+    }
+    // Intersection: turn or go straight.
+    if (car.cool <= 0) {
+      const along = car.axis === 'x' ? car.x : car.z;
+      for (const cross of ROADS) {
+        if (Math.abs(along - cross) >= 1 || Math.abs(along - cross) < 0.2) continue;
+        const roll = city.rng.next();
+        if (roll >= 0.45) break; // straight on
+        const left = roll < 0.225;
+        const newAxis = car.axis === 'x' ? 'z' : 'x';
+        let newDir;
+        if (car.axis === 'x' && car.dir > 0) newDir = left ? -1 : 1;
+        else if (car.axis === 'x') newDir = left ? 1 : -1;
+        else if (car.axis === 'z' && car.dir > 0) newDir = left ? 1 : -1;
+        else newDir = left ? -1 : 1;
+        car.axis = newAxis;
+        car.dir = newDir;
+        car.lane = cross;
+        if (newAxis === 'x') car.z = cross + laneOffset('x', newDir);
+        else car.x = cross + laneOffset('z', newDir);
+        car.heading = headingOf(newAxis, newDir);
+        car.cool = 2.5;
+        break;
       }
     }
-    car.speed += (desired - car.speed) * Math.min(1, dt * 2.5);
-    const fwd = carForward(car);
-    car.x += fwd.x * car.speed * dt;
-    car.z += fwd.z * car.speed * dt;
     car.mesh.position.set(car.x, 0, car.z);
     car.mesh.rotation.y = car.heading;
   }
-}
-
-// ---- queries used by police and missions ----
-
-export function nearestTrafficCar(cars, x, z, maxDistance) {
-  let best = null;
-  let bestDist = maxDistance;
-  for (const car of cars) {
-    const dist = Math.hypot(car.x - x, car.z - z);
-    if (dist < bestDist) {
-      bestDist = dist;
-      best = car;
-    }
-  }
-  return best;
-}
-
-export function countCarsNear(cars, x, z, radius) {
-  let count = 0;
-  for (const car of cars) {
-    if (Math.hypot(car.x - x, car.z - z) < radius) count += 1;
-  }
-  return count;
 }

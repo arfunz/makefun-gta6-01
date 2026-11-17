@@ -1,131 +1,92 @@
-// KOTA SENJA — pedestrians: the city's foot traffic.
-// They stroll the sidewalks and run when a car or a fist comes close.
-
+// Pedestrians: people strolling the sidewalks, each ambling toward a
+// sidewalk waypoint and picking a new one when they arrive.
 import * as THREE from 'three';
-import { CITY, cityHalfSpan } from './config.js';
-import { makeSeededRandom, randomRange, randomInt, pickFrom } from './random.js';
+import { PED_COUNT, COLORS } from './config.js';
+import { randomSidewalkPoint } from './world.js';
 
-const SHIRT_COLORS = [0xe74c3c, 0x3498db, 0x2ecc71, 0xf39c12, 0x9b59b6, 0x1abc9c, 0xecf0f1, 0xe67e22];
-
-function makePedMesh(shirtColor) {
-  const group = new THREE.Group();
-  const torso = new THREE.Mesh(
-    new THREE.BoxGeometry(0.62, 0.85, 0.36),
-    new THREE.MeshLambertMaterial({ color: shirtColor }),
+export function makePedMesh(shirt, skin) {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(0.55, 0.85, 0.34),
+    new THREE.MeshStandardMaterial({ color: shirt, roughness: 0.9 }),
   );
-  torso.position.y = 1.05;
-  torso.castShadow = true;
-  group.add(torso);
+  body.position.y = 0.95;
+  body.castShadow = true;
+  g.add(body);
   const head = new THREE.Mesh(
     new THREE.SphereGeometry(0.26, 10, 8),
-    new THREE.MeshLambertMaterial({ color: 0xd9a066 }),
+    new THREE.MeshStandardMaterial({ color: skin, roughness: 0.7 }),
   );
-  head.position.y = 1.72;
+  head.position.y = 1.62;
   head.castShadow = true;
-  group.add(head);
-  const legs = new THREE.Mesh(
-    new THREE.BoxGeometry(0.5, 0.62, 0.3),
-    new THREE.MeshLambertMaterial({ color: 0x2c3e50 }),
-  );
-  legs.position.y = 0.31;
-  group.add(legs);
-  return group;
-}
-
-function sidewalkPoint(rng, half) {
-  const pitch = CITY.blockSize + CITY.streetWidth;
-  const lines = [];
-  for (let i = -CITY.blocksAcross; i <= CITY.blocksAcross; i += 1) {
-    lines.push(i * pitch - CITY.streetWidth / 2);
+  g.add(head);
+  const legMat = new THREE.MeshStandardMaterial({ color: 0x22222a, roughness: 1 });
+  for (const lx of [-0.14, 0.14]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.55, 0.22), legMat);
+    leg.position.set(lx, 0.28, 0);
+    g.add(leg);
   }
-  const at = pickFrom(rng, lines);
-  const along = randomRange(rng, -half + 10, half - 10);
-  const offset = CITY.streetWidth / 2 + 2;
-  if (rng() < 0.5) return { x: along, z: at + offset };
-  return { x: at + offset, z: along };
+  return g;
 }
 
-export function spawnPedestrians(scene, count) {
-  const rng = makeSeededRandom(9917);
-  const half = cityHalfSpan();
+export function spawnPeds(city, rng, count = PED_COUNT) {
   const peds = [];
-  for (let i = 0; i < count; i += 1) {
-    const spot = sidewalkPoint(rng, half);
-    const mesh = makePedMesh(pickFrom(rng, SHIRT_COLORS));
-    mesh.position.set(spot.x, 0, spot.z);
-    scene.add(mesh);
-    const dest = sidewalkPoint(rng, half);
+  for (let i = 0; i < count; i++) {
+    const p = randomSidewalkPoint(rng);
+    const t = randomSidewalkPoint(rng);
+    const mesh = makePedMesh(rng.pick(COLORS.shirts), rng.pick(COLORS.skin));
+    mesh.position.set(p.x, 0, p.z);
     peds.push({
+      x: p.x,
+      z: p.z,
+      heading: rng.range(0, Math.PI * 2),
+      speed: rng.range(1.1, 1.9),
+      targetX: t.x,
+      targetZ: t.z,
       mesh,
-      x: spot.x,
-      z: spot.z,
-      heading: rng() * Math.PI * 2,
-      speed: randomRange(rng, 1.1, 2.0),
-      state: 'walk',
-      targetX: dest.x,
-      targetZ: dest.z,
-      fleeTimer: 0,
+      down: false,
       downTimer: 0,
-      bobPhase: rng() * Math.PI * 2,
     });
   }
   return peds;
 }
 
-// ---- movement, fleeing and getting back up ----
-
-export function updatePedestrians(peds, dt, ctx) {
-  const half = cityHalfSpan();
-  for (const ped of peds) {
-    if (ped.state === 'down') {
-      ped.downTimer -= dt;
-      if (ped.downTimer <= 0) {
-        ped.state = 'walk';
-        ped.mesh.rotation.x = 0;
-        ped.mesh.position.y = 0;
-        const spot = sidewalkPoint(makeSeededRandom((Math.random() * 1e9) | 0), half);
-        ped.x = spot.x;
-        ped.z = spot.z;
-        const dest = sidewalkPoint(makeSeededRandom((Math.random() * 1e9) | 0), half);
-        ped.targetX = dest.x;
-        ped.targetZ = dest.z;
+export function updatePeds(peds, dt, rng) {
+  for (const p of peds) {
+    if (p.down) {
+      p.downTimer -= dt;
+      if (p.downTimer <= 0) {
+        p.down = false;
+        p.mesh.rotation.x = 0;
+        p.mesh.position.y = 0;
+        const t = randomSidewalkPoint(rng);
+        p.targetX = t.x;
+        p.targetZ = t.z;
       }
       continue;
     }
-    // Flee a fast car or the player when they come too close.
-    const threatDx = ped.x - ctx.threatX;
-    const threatDz = ped.z - ctx.threatZ;
-    const threatDist = Math.hypot(threatDx, threatDz);
-    if (ctx.threatRadius > 0 && threatDist < ctx.threatRadius) {
-      ped.state = 'flee';
-      ped.fleeTimer = 1.6;
+    if (p.speed <= 0) continue; // staged for a screenshot: stand still
+    const dx = p.targetX - p.x;
+    const dz = p.targetZ - p.z;
+    const d = Math.hypot(dx, dz);
+    if (d < 1.2) {
+      const t = randomSidewalkPoint(rng);
+      p.targetX = t.x;
+      p.targetZ = t.z;
+      continue;
     }
-    if (ped.state === 'flee') {
-      ped.fleeTimer -= dt;
-      const len = Math.max(0.01, threatDist);
-      ped.x += (threatDx / len) * 5.5 * dt;
-      ped.z += (threatDz / len) * 5.5 * dt;
-      ped.heading = Math.atan2(threatDx / len, threatDz / len);
-      if (ped.fleeTimer <= 0) ped.state = 'walk';
-    } else {
-      const dx = ped.targetX - ped.x;
-      const dz = ped.targetZ - ped.z;
-      const dist = Math.hypot(dx, dz);
-      if (dist < 2) {
-        const dest = sidewalkPoint(makeSeededRandom((Math.random() * 1e9) | 0), half);
-        ped.targetX = dest.x;
-        ped.targetZ = dest.z;
-      } else {
-        ped.heading = Math.atan2(dx / dist, dz / dist);
-        ped.x += (dx / dist) * ped.speed * dt;
-        ped.z += (dz / dist) * ped.speed * dt;
-      }
-    }
-    const clamped = { x: ped.x, z: ped.z };
-    ped.x = Math.max(-half - 10, Math.min(half + 10, clamped.x));
-    ped.z = Math.max(-half - 10, Math.min(half + 10, clamped.z));
-    ped.mesh.position.set(ped.x, Math.abs(Math.sin(ped.bobPhase)) * 0.06, ped.z);
-    ped.mesh.rotation.y = ped.heading;
-    ped.bobPhase += dt * (ped.state === 'flee' ? 14 : 7);
+    p.heading = Math.atan2(dx, dz);
+    p.x += (dx / d) * p.speed * dt;
+    p.z += (dz / d) * p.speed * dt;
+    p.mesh.position.set(p.x, Math.abs(Math.sin((p.x + p.z) * 2)) * 0.04, p.z);
+    p.mesh.rotation.y = p.heading;
   }
+}
+
+// A punch knocks a pedestrian down; they get up after a few seconds.
+export function knockDown(ped) {
+  ped.down = true;
+  ped.downTimer = 6;
+  ped.mesh.rotation.x = -Math.PI / 2;
+  ped.mesh.position.y = 0.3;
 }

@@ -1,171 +1,143 @@
-// KOTA SENJA — the HUD: health, money, wanted stars, objective,
-// speed, and a live top-down minimap drawn on a 2D canvas.
-
-import { cityHalfSpan } from './config.js';
-
-export function initHud() {
+// The HUD: health, money, mission, wanted stars, speed, the minimap and
+// every overlay. The game writes state here; this file writes the DOM.
+export function bindHud() {
+  const byId = (id) => document.getElementById(id);
   return {
-    healthFill: document.getElementById('health-fill'),
-    healthText: document.getElementById('health-text'),
-    moneyText: document.getElementById('money-text'),
-    starsEl: document.getElementById('wanted-stars'),
-    objectiveTitle: document.getElementById('objective-title'),
-    objectiveText: document.getElementById('objective-text'),
-    speedText: document.getElementById('speed-text'),
-    ammoText: document.getElementById('ammo-text'),
-    messageEl: document.getElementById('hud-message'),
-    minimap: document.getElementById('minimap'),
-    messageTimer: null,
+    healthLabel: byId('health-label'),
+    healthFill: byId('health-fill'),
+    money: byId('money'),
+    missionTitle: byId('mission-title'),
+    missionLine: byId('mission-line'),
+    stars: byId('stars'),
+    speed: byId('speed'),
+    map: byId('minimap'),
+    toast: byId('toast'),
+    overlays: {
+      title: byId('overlay-title'),
+      missionDone: byId('overlay-mission-done'),
+      win: byId('overlay-win'),
+      busted: byId('overlay-busted'),
+      wasted: byId('overlay-wasted'),
+      pause: byId('overlay-pause'),
+    },
+    missionDoneText: byId('mission-done-text'),
+    winStats: byId('win-stats'),
+    bustedText: byId('busted-text'),
+    wastedText: byId('wasted-text'),
+    missionList: byId('mission-list'),
   };
 }
 
-export function showHudMessage(hud, text) {
-  if (!hud.messageEl) return;
-  hud.messageEl.textContent = text;
-  hud.messageEl.style.opacity = '1';
-  if (hud.messageTimer) clearTimeout(hud.messageTimer);
-  hud.messageTimer = setTimeout(() => {
-    hud.messageEl.style.opacity = '0';
-  }, 3600);
+export function updateHud(G) {
+  const h = G.hud;
+  const p = G.player;
+  h.healthLabel.textContent = `KESEHATAN ${Math.ceil(p.health)}`;
+  h.healthFill.style.width = `${Math.max(0, p.health)}%`;
+  h.money.textContent = `$${G.money}`;
+  const m = G.missions;
+  const def = m.defs[m.current];
+  h.missionTitle.textContent = `Misi ${m.current + 1} / 5`;
+  const d = m.target ? Math.round(Math.hypot(m.target.x - p.x, m.target.z - p.z)) : 0;
+  h.missionLine.textContent = `${def.objective} — ${d}m`;
+  let stars = '';
+  for (let i = 0; i < 5; i++) stars += i < G.wanted ? '★' : '☆';
+  h.stars.textContent = stars;
+  h.speed.textContent = `${Math.round(Math.abs(p.speed) * 3.6)} km/h`;
+  drawMinimap(G);
 }
 
-export function updateHud(hud, game) {
-  const player = game.player;
-  if (hud.healthFill) hud.healthFill.style.width = `${Math.max(0, player.health)}%`;
-  if (hud.healthText) hud.healthText.textContent = `${Math.ceil(Math.max(0, player.health))}`;
-  if (hud.moneyText) hud.moneyText.textContent = `$${player.money}`;
-  if (hud.starsEl) {
-    let stars = '';
-    for (let i = 0; i < 5; i += 1) {
-      stars += i < game.wanted ? '★' : '☆';
-    }
-    hud.starsEl.textContent = stars;
-    hud.starsEl.classList.toggle('hot', game.wanted > 0);
-  }
-  const step = game.missionStepText();
-  if (hud.objectiveTitle) {
-    hud.objectiveTitle.textContent = game.missions.active
-      ? `Misi ${game.missions.index + 1} / 5`
-      : 'Kota Senja — bebas';
-  }
-  if (hud.objectiveText) hud.objectiveText.textContent = step;
-  if (hud.speedText) {
-    const speed = player.inCar ? Math.abs(player.inCar.speed) * 3.6 : Math.abs(player.speed) * 3.6;
-    hud.speedText.textContent = player.inCar ? `${Math.round(speed)} km/h` : '';
-  }
-  if (hud.ammoText) {
-    hud.ammoText.textContent = player.hasPistol ? `Pistol ${player.ammo}` : '';
-  }
-  drawMinimap(hud, game);
-}
-
-export function drawMinimap(hud, game) {
-  const canvas = hud.minimap;
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  const size = canvas.width;
-  const half = cityHalfSpan() + 30;
-  const toMap = (x, z) => ({
-    x: ((x + half) / (half * 2)) * size,
-    y: ((z + half) / (half * 2)) * size,
-  });
-  ctx.fillStyle = 'rgba(12, 16, 28, 0.85)';
-  ctx.fillRect(0, 0, size, size);
-  // Streets.
-  ctx.strokeStyle = 'rgba(220, 220, 220, 0.55)';
-  ctx.lineWidth = 2;
-  for (const line of game.city.streetCenterlines) {
-    const a = toMap(line.axis === 'x' ? -half : line.at, line.axis === 'x' ? line.at : -half);
-    const b = toMap(line.axis === 'x' ? half : line.at, line.axis === 'x' ? line.at : half);
+// The minimap: a dark grid with the roads, the player arrow, the mission
+// marker and the police dots.
+function drawMinimap(G) {
+  const h = G.hud;
+  const cv = h.map;
+  if (!cv) return;
+  const ctx = cv.getContext('2d');
+  const W = cv.width;
+  const H = cv.height;
+  ctx.fillStyle = '#0d1420';
+  ctx.fillRect(0, 0, W, H);
+  const minX = -140;
+  const maxX = 210;
+  const minZ = -140;
+  const maxZ = 230;
+  const sx = (x) => ((x - minX) / (maxX - minX)) * W;
+  const sz = (z) => ((z - minZ) / (maxZ - minZ)) * H;
+  ctx.strokeStyle = '#3a3f4a';
+  ctx.lineWidth = 4;
+  const roads = [-109, -69, -29, 11, 51, 91, 131, 171];
+  for (const r of roads) {
     ctx.beginPath();
-    ctx.moveTo(a.x, a.y);
-    ctx.lineTo(b.x, b.y);
+    ctx.moveTo(sx(r), 0);
+    ctx.lineTo(sx(r), H);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, sz(r));
+    ctx.lineTo(W, sz(r));
     ctx.stroke();
   }
-  // Sea.
-  ctx.fillStyle = 'rgba(30, 111, 143, 0.8)';
-  const sea = toMap(176, -half);
-  ctx.fillRect(sea.x, 0, size - sea.x, size);
-  // Mission marker.
-  if (game.missions.markerPos) {
-    const m = toMap(game.missions.markerPos.x, game.missions.markerPos.z);
-    ctx.fillStyle = '#ffd700';
+  const m = G.missions;
+  if (m.target) {
+    ctx.fillStyle = '#ffd23d';
     ctx.beginPath();
-    ctx.moveTo(m.x, m.y - 6);
-    ctx.lineTo(m.x + 5, m.y);
-    ctx.lineTo(m.x, m.y + 6);
-    ctx.lineTo(m.x - 5, m.y);
-    ctx.closePath();
+    ctx.arc(sx(m.target.x), sz(m.target.z), 6, 0, Math.PI * 2);
     ctx.fill();
   }
-  // Cars and police.
-  ctx.fillStyle = '#c8c8c8';
-  for (const car of game.allCars) {
-    const p = toMap(car.x, car.z);
-    ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
-  }
-  ctx.fillStyle = '#ff4444';
-  for (const car of game.policeCars) {
-    const p = toMap(car.x, car.z);
+  ctx.fillStyle = '#3b7ad4';
+  for (const c of G.policeCars) {
     ctx.beginPath();
-    ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+    ctx.arc(sx(c.x), sz(c.z), 3, 0, Math.PI * 2);
     ctx.fill();
   }
-  // Player arrow, pointing along the player's heading.
-  const playerPos = game.player.inCar
-    ? { x: game.player.inCar.x, z: game.player.inCar.z, heading: game.player.inCar.heading }
-    : { x: game.player.x, z: game.player.z, heading: game.player.heading };
-  const pp = toMap(playerPos.x, playerPos.z);
+  const p = G.player;
   ctx.save();
-  ctx.translate(pp.x, pp.y);
-  ctx.rotate(playerPos.heading + Math.PI);
-  ctx.fillStyle = '#ffffff';
+  ctx.translate(sx(p.x), sz(p.z));
+  ctx.rotate(Math.PI - p.heading);
+  ctx.fillStyle = '#37d67a';
   ctx.beginPath();
-  ctx.moveTo(0, -6);
-  ctx.lineTo(4.5, 5);
-  ctx.lineTo(-4.5, 5);
+  ctx.moveTo(0, -7);
+  ctx.lineTo(5, 6);
+  ctx.lineTo(-5, 6);
   ctx.closePath();
   ctx.fill();
   ctx.restore();
 }
 
-// ---- overlays and the mission list on the title screen ----
-
-export function showOverlay(id) {
-  const overlays = document.querySelectorAll('.overlay');
-  for (const overlay of overlays) overlay.classList.remove('visible');
-  if (!id) return;
-  const target = document.getElementById(id);
-  if (target) target.classList.add('visible');
+export function showOverlay(h, name) {
+  hideOverlays(h);
+  const el = h.overlays[name];
+  if (el) el.classList.add('show');
 }
 
-export function setWinStats(game) {
-  const el = document.getElementById('win-stats');
-  if (!el) return;
-  el.textContent = `Uang: $${game.player.money} · Misi: 5/5 · Bintang tertinggi: ${game.save.bestWanted}★`;
+export function hideOverlays(h) {
+  for (const key of Object.keys(h.overlays)) h.overlays[key].classList.remove('show');
 }
 
-export function setMissionCompleteText(def) {
-  const el = document.getElementById('mission-done-text');
-  if (!el) return;
-  el.textContent = `${def.title} selesai! Hadiah $${def.reward}.`;
+export function showToast(h, text) {
+  h.toast.textContent = text;
+  h.toast.style.display = 'block';
+  clearTimeout(h.toastTimer);
+  h.toastTimer = setTimeout(() => { h.toast.style.display = 'none'; }, 2600);
 }
 
-export function renderMissionList(missionsCompleted) {
-  const list = document.getElementById('mission-list');
-  if (!list) return;
-  list.innerHTML = '';
-  const defs = [
-    '1 — Kiriman Pertama',
-    '2 — Tagihan',
-    '3 — Lari Pelabuhan',
-    '4 — Kabur',
-    '5 — Raja Senja',
-  ];
-  defs.forEach((name, i) => {
-    const item = document.createElement('div');
-    item.className = 'mission-item' + (i < missionsCompleted ? ' done' : '');
-    item.textContent = (i < missionsCompleted ? '✓ ' : '') + name;
-    list.appendChild(item);
+export function setMissionDone(h, def) {
+  h.missionDoneText.textContent = 'Misi selesai: ' + def.name + ' (+$' + def.reward + ')';
+  showOverlay(h, 'mission-done');
+  setTimeout(() => {
+    if (!h.overlays.win.classList.contains('show')) hideOverlays(h);
+  }, 1800);
+}
+
+export function setWinStats(h, G) {
+  h.winStats.textContent = 'Utang lunas — $' + G.money + ' · Misi: ' + G.missions.completedCount + '/' + G.missions.defs.length + ' · Wanted tertinggi: ' + G.maxWanted + ' bintang';
+}
+
+export function renderMissionList(h, G) {
+  h.missionList.innerHTML = '';
+  G.missions.defs.forEach((m, i) => {
+    const done = i < G.missions.completedCount;
+    const div = document.createElement('div');
+    div.textContent = (done ? '✓ ' : (i + 1) + '. ') + m.name + ' — $' + m.reward;
+    h.missionList.appendChild(div);
   });
 }

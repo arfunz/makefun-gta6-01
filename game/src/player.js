@@ -1,162 +1,140 @@
-// KOTA SENJA — Raka on foot: movement, camera rig, entering cars.
-// The camera orbits behind Raka and swings behind the car when driving.
-
+// Raka, the courier: on foot with WASD and a mouse camera, or behind the
+// wheel of any car he can steal with E. Green shirt, yellow cap.
 import * as THREE from 'three';
-import { PLAYER_TUNING, CAR_TUNING } from './config.js';
-import { moveAxes, consumeMouseLook, cameraTurnKeys } from './input.js';
-import { resolveCircleColliders } from './vehicles.js';
+import { PLAYER, CAR, WORLD } from './config.js';
+import { driveCar, nearestCar } from './vehicles.js';
+import { resolveCircle } from './world.js';
+import { makePedMesh } from './pedestrians.js';
+import { addWanted } from './police.js';
 
-export function makePlayerMesh() {
-  const group = new THREE.Group();
-  const jacket = new THREE.MeshLambertMaterial({ color: 0x0e7a6e });
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.85, 0.38), jacket);
-  torso.position.y = 1.08;
-  torso.castShadow = true;
-  group.add(torso);
-  const head = new THREE.Mesh(
-    new THREE.SphereGeometry(0.27, 12, 10),
-    new THREE.MeshLambertMaterial({ color: 0xc98d5f }),
-  );
-  head.position.y = 1.76;
-  head.castShadow = true;
-  group.add(head);
+export function createPlayer(city) {
+  const mesh = makePedMesh(0x2a9d6b, 0xe8b98a);
   const cap = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.28, 0.29, 0.12, 12),
-    new THREE.MeshLambertMaterial({ color: 0xf1c40f }),
+    new THREE.CylinderGeometry(0.28, 0.3, 0.14, 10),
+    new THREE.MeshStandardMaterial({ color: 0xe8c33d, roughness: 0.8 }),
   );
-  cap.position.y = 1.96;
-  group.add(cap);
-  const pants = new THREE.MeshLambertMaterial({ color: 0x2c3e50 });
-  for (const lx of [-0.16, 0.16]) {
-    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.66, 0.3), pants);
-    leg.position.set(lx, 0.33, 0);
-    group.add(leg);
-  }
-  for (const ax of [-0.42, 0.42]) {
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.7, 0.22), jacket);
-    arm.position.set(ax, 1.1, 0);
-    group.add(arm);
-  }
-  return group;
-}
-
-export function createPlayer(scene, x, z) {
-  const mesh = makePlayerMesh();
-  mesh.position.set(x, 0, z);
-  scene.add(mesh);
+  cap.position.y = 1.86;
+  mesh.add(cap);
+  mesh.position.set(city.spawn.x, 0, city.spawn.z);
   return {
-    mesh,
-    x,
-    z,
+    x: city.spawn.x,
+    z: city.spawn.z,
     heading: 0,
     speed: 0,
-    health: PLAYER_TUNING.maxHealth,
+    inCar: false,
+    car: null,
+    health: PLAYER.health,
     money: 0,
-    inCar: null,
-    hasPistol: false,
-    ammo: 0,
-    lastDamageAt: -99,
-    punchCooldown: 0,
-    shootCooldown: 0,
+    mesh,
   };
 }
 
-export function updatePlayerOnFoot(game, dt) {
-  const player = game.player;
-  const input = game.input;
-  const axes = moveAxes(input);
-  const running = input.keys.has('ShiftLeft') || input.keys.has('ShiftRight');
-  const speed = running ? PLAYER_TUNING.runSpeed : PLAYER_TUNING.walkSpeed;
-  const yaw = game.cameraYaw;
-  const sin = Math.sin(yaw);
-  const cos = Math.cos(yaw);
-  let moveX = 0;
-  let moveZ = 0;
-  if (axes.forward !== 0 || axes.strafe !== 0) {
-    const fx = -sin;
-    const fz = -cos;
-    const rx = -cos;
-    const rz = sin;
-    moveX = fx * axes.forward + rx * axes.strafe;
-    moveZ = fz * axes.forward + rz * axes.strafe;
-    const len = Math.hypot(moveX, moveZ) || 1;
-    moveX /= len;
-    moveZ /= len;
-    player.heading = Math.atan2(moveX, moveZ);
-  }
-  const nextX = player.x + moveX * speed * dt;
-  const nextZ = player.z + moveZ * speed * dt;
-  const resolved = resolveCircleColliders(nextX, nextZ, PLAYER_TUNING.radius, game.city.colliders);
-  player.x = resolved.x;
-  player.z = resolved.z;
-  player.speed = (axes.forward !== 0 || axes.strafe !== 0) ? speed : 0;
-  player.mesh.position.set(player.x, 0, player.z);
-  player.mesh.rotation.y = player.heading;
-  // Simple walk bob so the character reads as alive.
-  const bob = player.speed > 0 ? Math.sin(game.time * 11) * 0.05 : 0;
-  player.mesh.position.y = bob;
-  player.punchCooldown = Math.max(0, player.punchCooldown - dt);
-  player.shootCooldown = Math.max(0, player.shootCooldown - dt);
-}
-
-// ---- entering and leaving cars, and the orbit camera ----
-
-export function nearestStealableCar(game, maxDistance) {
-  const player = game.player;
-  let best = null;
-  let bestDist = maxDistance;
-  for (const car of game.allCars) {
-    if (car.kind === 'police') continue;
-    if (car === player.inCar) continue;
-    const dist = Math.hypot(car.x - player.x, car.z - player.z);
-    if (dist < bestDist) {
-      bestDist = dist;
-      best = car;
+export function updatePlayer(G, dt) {
+  const p = G.player;
+  const input = G.input;
+  if (p.inCar && p.car) {
+    const throttle = (input.keys.has('KeyW') || input.keys.has('ArrowUp') ? 1 : 0) + (input.keys.has('KeyS') || input.keys.has('ArrowDown') ? -1 : 0);
+    const steer = (input.keys.has('KeyA') || input.keys.has('ArrowLeft') ? 1 : 0) + (input.keys.has('KeyD') || input.keys.has('ArrowRight') ? -1 : 0);
+    driveCar(p.car, throttle, steer, dt, G.city.colliders, G.allCars);
+    p.x = p.car.x;
+    p.z = p.car.z;
+    p.heading = p.car.heading;
+    p.speed = p.car.speed;
+    p.mesh.visible = false;
+    if (Math.abs(p.car.speed) > 0.5) G.audio.setEngine(Math.abs(p.car.speed) / CAR.top);
+  } else {
+    p.mesh.visible = true;
+    let fwd = 0;
+    let side = 0;
+    if (input.keys.has('KeyW') || input.keys.has('ArrowUp')) fwd += 1;
+    if (input.keys.has('KeyS') || input.keys.has('ArrowDown')) fwd -= 1;
+    if (input.keys.has('KeyA') || input.keys.has('ArrowLeft')) side -= 1;
+    if (input.keys.has('KeyD') || input.keys.has('ArrowRight')) side += 1;
+    const moving = fwd !== 0 || side !== 0;
+    const run = input.keys.has('ShiftLeft') || input.keys.has('ShiftRight');
+    const speed = run ? PLAYER.run : PLAYER.walk;
+    const cy = G.cameraYaw;
+    const sin = Math.sin(cy);
+    const cos = Math.cos(cy);
+    let mx = 0;
+    let mz = 0;
+    if (moving) {
+      // Camera-relative movement: W moves away from the camera, D to its right.
+      mx = -sin * fwd + cos * side;
+      mz = -cos * fwd - sin * side;
+      const len = Math.hypot(mx, mz);
+      mx /= len;
+      mz /= len;
     }
+    const nx = p.x + mx * speed * dt;
+    const nz = p.z + mz * speed * dt;
+    const fixed = resolveCircle(nx, nz, PLAYER.radius, G.city.colliders);
+    p.x = fixed.x;
+    p.z = fixed.z;
+    if (moving) p.heading = Math.atan2(mx, mz);
+    p.mesh.position.set(p.x, 0, p.z);
+    p.mesh.rotation.y = p.heading;
+    p.speed = moving ? speed : 0;
+    G.audio.setEngine(0);
   }
-  return best;
 }
 
-export function enterCar(game, car) {
-  const player = game.player;
-  player.inCar = car;
-  player.mesh.visible = false;
+export function enterCar(G) {
+  const p = G.player;
+  const car = nearestCar(p.x, p.z, [...G.trafficCars, ...G.parkedCars], PLAYER.enterRange);
+  if (!car) return false;
+  if (car.kind === 'traffic') {
+    // Stealing a moving car is a crime.
+    addWanted(G, 1);
+    G.hud.showToast('Kamu mencuri mobil!');
+  }
+  car.driven = true;
   car.kind = 'player';
-  game.cameraDistance = 11;
-  if (car.stolen !== true) {
-    car.stolen = true;
+  p.inCar = true;
+  p.car = car;
+  p.x = car.x;
+  p.z = car.z;
+  p.heading = car.heading;
+  p.mesh.visible = false;
+  G.audio.horn();
+  return true;
+}
+
+export function exitCar(G) {
+  const p = G.player;
+  if (!p.inCar || !p.car) return;
+  const car = p.car;
+  car.driven = false;
+  p.x = car.x + Math.cos(car.heading) * 2.2;
+  p.z = car.z - Math.sin(car.heading) * 2.2;
+  p.heading = car.heading;
+  p.inCar = false;
+  p.car = null;
+  p.mesh.visible = true;
+  p.mesh.position.set(p.x, 0, p.z);
+  p.mesh.rotation.y = p.heading;
+}
+
+export function hurtPlayer(G, amount) {
+  const p = G.player;
+  if (p.health <= 0) return;
+  p.health = Math.max(0, p.health - amount);
+  if (p.health <= 0) {
+    G.mode = 'wasted';
+    G.hud.showOverlay('wasted');
   }
 }
 
-export function exitCar(game) {
-  const player = game.player;
-  const car = player.inCar;
-  if (!car) return;
-  const side = { x: Math.cos(car.heading), z: -Math.sin(car.heading) };
-  player.x = car.x + side.x * 2.6;
-  player.z = car.z + side.z * 2.6;
-  player.heading = car.heading;
-  player.mesh.visible = true;
-  player.mesh.position.set(player.x, 0, player.z);
-  player.inCar = null;
-  game.cameraDistance = 8;
-}
-
-export function updateCameraRig(game, dt) {
-  const input = game.input;
-  const look = consumeMouseLook(input);
-  game.cameraYaw -= look.dx * 0.0032;
-  game.cameraPitch = Math.max(-0.15, Math.min(0.55, game.cameraPitch + look.dy * 0.0022));
-  const keys = cameraTurnKeys(input);
-  game.cameraYaw += keys.yaw * 2.4 * dt;
-  game.cameraPitch = Math.max(-0.15, Math.min(0.55, game.cameraPitch - keys.pitch * 1.4 * dt));
-  const focus = game.player.inCar
-    ? { x: game.player.inCar.x, y: 1.6, z: game.player.inCar.z }
-    : { x: game.player.x, y: 1.7, z: game.player.z };
-  const dist = game.cameraDistance;
-  const camX = focus.x + Math.sin(game.cameraYaw) * Math.cos(game.cameraPitch) * dist;
-  const camY = focus.y + Math.sin(game.cameraPitch) * dist + 3.2;
-  const camZ = focus.z + Math.cos(game.cameraYaw) * Math.cos(game.cameraPitch) * dist;
-  game.camera.position.set(camX, camY, camZ);
-  game.camera.lookAt(focus.x, focus.y, focus.z);
+export function respawnPlayer(G) {
+  const p = G.player;
+  p.x = G.city.spawn.x;
+  p.z = G.city.spawn.z;
+  p.heading = Math.PI;
+  p.health = PLAYER.health;
+  p.inCar = false;
+  p.car = null;
+  p.mesh.visible = true;
+  p.mesh.position.set(p.x, 0, p.z);
+  p.mesh.rotation.y = p.heading;
+  G.cameraYaw = Math.PI;
 }
