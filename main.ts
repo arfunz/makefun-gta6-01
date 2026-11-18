@@ -24,5 +24,5 @@ const dossier = await buildDossier(outDir, {
   game_max_files: 993,
   game_max_bytes: 50331648,
 });
-writeFileSync(join(outDir, 'dossier.json'), JSON.stringify(dossier, null, 2) + '\n');
+writeFileSync(join(outDir, 'dossier.json'), dossier);
 console.log('dossier written to ' + join(outDir, 'dossier.json'));
